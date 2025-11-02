@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wallet/providers/ethereum_provider.dart';
+import 'package:wallet/providers/swap_provider.dart';
 import 'package:wallet/screens/nav/_nav.dart';
 import 'package:wallet/utils/localization.dart';
 import 'package:wallet/widgets/token_card.dart';
@@ -13,20 +14,68 @@ class HomeScreen extends StatefulWidget {
 
 class HomeScreenState extends State<HomeScreen> {
   late EthereumProvider ethereumProvider;
+  bool _initialized = false;
+  bool _swapInitialized = false; // Track swap provider initialization
+  String _lastWalletAddress = ''; // Track last wallet address
+  double _lastBlockchainBalance = 0.0; // Track last blockchain balance
+
+  // Helper function để lấy icon cho mỗi token
+  IconData _getTokenIcon(String token) {
+    switch (token) {
+      case 'ETH':
+        return Icons.currency_bitcoin; // Ethereum icon
+      case 'USDT':
+        return Icons.attach_money; // Dollar icon
+      case 'BTC':
+        return Icons.currency_bitcoin; // Bitcoin icon
+      default:
+        return Icons.monetization_on;
+    }
+  }
+
+  // Helper function để lấy màu cho mỗi token
+  Color _getTokenColor(String token) {
+    switch (token) {
+      case 'ETH':
+        return Color(0xFF627EEA); // Ethereum blue
+      case 'USDT':
+        return Color(0xFF26A17B); // Tether green
+      case 'BTC':
+        return Color(0xFFF7931A); // Bitcoin orange
+      default:
+        return Colors.grey;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
-      ethereumProvider.fetchBalance();
-      ethereumProvider.fetchPriceChange();
-    });
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     ethereumProvider = Provider.of<EthereumProvider>(context);
+    
+    // Chỉ gọi fetchBalance một lần khi khởi tạo
+    if (!_initialized) {
+      _initialized = true;
+      Future.microtask(() async {
+        await ethereumProvider.fetchBalance();
+        await ethereumProvider.fetchPriceChange();
+        
+        // Sau khi fetch xong, sync balance sang SwapProvider
+        final swapProvider = Provider.of<SwapProvider>(context, listen: false);
+        final walletAddress = ethereumProvider.walletModel?.getAddress ?? '';
+        final ethBalance = ethereumProvider.walletModel?.getEtherAmount ?? 0.0;
+        
+        if (walletAddress.isNotEmpty) {
+          swapProvider.setCurrentWallet(walletAddress);
+          swapProvider.updateEthBalance(walletAddress, ethBalance);
+          print('[SYNC] Synced ETH balance to SwapProvider: $ethBalance ETH');
+        }
+      });
+    }
   }
 
   @override
@@ -36,6 +85,48 @@ class HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final swapProvider = Provider.of<SwapProvider>(context);
+    final walletAddress = ethereumProvider.walletModel?.getAddress ?? '';
+    final ethBalance = ethereumProvider.walletModel?.getEtherAmount ?? 0.0;
+    
+    // Cập nhật wallet hiện tại trong SwapProvider
+    // CHỈ gọi updateEthBalance khi:
+    // 1. Switch wallet (wallet address thay đổi)
+    // 2. Blockchain balance thay đổi (do fetch mới hoặc giao dịch)
+    
+    bool walletChanged = walletAddress.isNotEmpty && _lastWalletAddress != walletAddress;
+    bool balanceChanged = ethBalance != _lastBlockchainBalance;
+    
+    if (walletChanged) {
+      _lastWalletAddress = walletAddress;
+      _lastBlockchainBalance = ethBalance;
+      
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        print('[HOME] Switching wallet: $walletAddress, ETH from blockchain: $ethBalance');
+        swapProvider.setCurrentWallet(walletAddress);
+        swapProvider.updateEthBalance(walletAddress, ethBalance);
+      });
+    } else if (walletAddress.isNotEmpty && !_swapInitialized) {
+      _swapInitialized = true;
+      _lastWalletAddress = walletAddress;
+      _lastBlockchainBalance = ethBalance;
+      
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        print('[HOME] Initializing wallet: $walletAddress, ETH from blockchain: $ethBalance');
+        swapProvider.setCurrentWallet(walletAddress);
+        swapProvider.updateEthBalance(walletAddress, ethBalance);
+      });
+    } else if (balanceChanged && walletAddress.isNotEmpty) {
+      // Blockchain balance thay đổi (do nhận/gửi ETH)
+      _lastBlockchainBalance = ethBalance;
+      
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        print('[HOME] Blockchain balance changed: $ethBalance ETH');
+        swapProvider.updateEthBalance(walletAddress, ethBalance);
+      });
+    }
+    // Nếu chỉ rebuild do swap → KHÔNG gọi updateEthBalance()
+    
     return Column(
       children: [
         Container(
@@ -236,40 +327,132 @@ class HomeScreenState extends State<HomeScreen> {
           child: ListView(
             padding: EdgeInsets.all(16.0),
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color.fromARGB(255, 42, 42, 42),
-                  // // Màu nền của khung
-                   
-            //  color :Color.fromRGBO(38, 38, 38, 1.0), 
-                  borderRadius: BorderRadius.circular(8), // Bo góc
-                ),
-                padding: EdgeInsets.all(8.0), // Khoảng cách bên trong khung
-                child: ListTile(
-                  leading: Image.network(
-                    "https://cryptologos.cc/logos/ethereum-eth-logo.png",
-                    width: 40,
-                    height: 40,
-                    errorBuilder: (context, error, stackTrace) =>
-                        Icon(Icons.error, color: Colors.red),
-                  ),
-                  title: Text(
-                    "Ethereum",
-                    style: TextStyle(fontWeight: FontWeight.bold,color: Colors.white),
-                  ),
-                  subtitle: Text(
-                    "Balance: ${ethereumProvider.walletModel?.getEtherAmount ?? "0.0"} ETH",style: TextStyle(color: Colors.white),
-                  ),
-                  trailing: Text(
-                    "\$${ethereumProvider.walletModel?.getBalance.toStringAsFixed(2) ?? "0.00"}",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold,color: Colors.white),
-                  ),
-                ),
+              // Ethereum
+              _buildTokenCard(
+                context,
+                swapProvider,
+                'ETH',
+                'Ethereum',
+                "https://cryptologos.cc/logos/ethereum-eth-logo.png",
+                4,
+              ),
+              // USDT
+              _buildTokenCard(
+                context,
+                swapProvider,
+                'USDT',
+                'Tether',
+                "https://cryptologos.cc/logos/tether-usdt-logo.png",
+                2,
+              ),
+              // Bitcoin
+              _buildTokenCard(
+                context,
+                swapProvider,
+                'BTC',
+                'Bitcoin',
+                "https://cryptologos.cc/logos/bitcoin-btc-logo.png",
+                6,
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  // Helper method để tạo token card - tránh gọi getTokenBalance() nhiều lần
+  Widget _buildTokenCard(
+    BuildContext context,
+    SwapProvider swapProvider,
+    String tokenSymbol,
+    String tokenName,
+    String iconUrl,
+    int decimals,
+  ) {
+    // Lấy balance 1 lần duy nhất
+    final balance = swapProvider.getTokenBalance(tokenSymbol);
+    final price = swapProvider.tokenPrices[tokenSymbol] ?? 0.0;
+    final value = balance * price;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color.fromARGB(255, 42, 42, 42),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: EdgeInsets.all(16.0),
+      margin: EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          // Icon với màu sắc
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: _getTokenColor(tokenSymbol).withOpacity(0.2),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: _getTokenColor(tokenSymbol),
+                width: 2,
+              ),
+            ),
+            child: Center(
+              child: Icon(
+                _getTokenIcon(tokenSymbol),
+                color: _getTokenColor(tokenSymbol),
+                size: 24,
+              ),
+            ),
+          ),
+          SizedBox(width: 16),
+          // Token info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tokenName,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold, 
+                    color: Colors.white,
+                    fontSize: 16,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  "${balance.toStringAsFixed(decimals)} $tokenSymbol",
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Value
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                "\$${value.toStringAsFixed(2)}",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                "\$${price.toStringAsFixed(2)}",
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.white60,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

@@ -118,9 +118,12 @@ class _HomePageState extends State<HomePage> {
                   onTap: () {
                     showModalBottomSheet(
                       context: context,
+                      isScrollControlled: true,
                       builder: (BuildContext context) {
                         return Container(
-                          height: 280,
+                          constraints: BoxConstraints(
+                            maxHeight: MediaQuery.of(context).size.height * 0.6,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color.fromRGBO(
                                 38, 38, 38, 1.0), // Modal background
@@ -130,8 +133,14 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                           child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              ...wallets,
+                              Flexible(
+                                child: ListView(
+                                  shrinkWrap: true,
+                                  children: wallets,
+                                ),
+                              ),
                               Divider(color: Colors.grey), // Divider color
                               Row(
                                 mainAxisAlignment:

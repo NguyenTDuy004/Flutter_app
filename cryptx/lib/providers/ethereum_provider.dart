@@ -42,6 +42,12 @@ Future<void> saveData(String key, String value) async {
         privateKey: dotenv.env['DEFAULT_WALLET_PRIVATE_KEY'] ?? 'unknown'),
     WalletModel(
         privateKey: dotenv.env['DEFAULT_WALLET_PRIVATE_KEY2'] ?? 'unknown'),
+    WalletModel(
+        privateKey: dotenv.env['DEFAULT_WALLET_PRIVATE_KEY3'] ?? 'unknown'),
+    WalletModel(
+        privateKey: dotenv.env['DEFAULT_WALLET_PRIVATE_KEY4'] ?? 'unknown'),
+    WalletModel(
+        privateKey: dotenv.env['DEFAULT_WALLET_PRIVATE_KEY5'] ?? 'unknown'),
   ];
 
   late WalletModel _walletModel;
@@ -123,15 +129,19 @@ Future<void> saveData(String key, String value) async {
       var creds = EthPrivateKey.fromHex(_walletModel.getPrivateKey);
       var sender = EthereumAddress.fromHex(_walletModel.getAddress);
       var toAddress = EthereumAddress.fromHex(receiver);
-      // var txHash =
+      
+      // Gửi transaction lên blockchain
       await _ethereumService.sendTransaction(
           creds, sender, toAddress, EtherAmount.inWei(amount));
+      
+      // Lưu vào transaction history
       await _transactionService.createTransaction(TransactionModel(
         from: _walletModel,
         to: WalletModel(publicKey: receiver),
         amount: ethAmount,
       ));
 
+      // Cập nhật balance từ blockchain
       await fetchBalance();
 
       _isLoading = false;
@@ -155,8 +165,13 @@ Future<void> saveData(String key, String value) async {
         Future.microtask(() => notifyListeners());
       }
 
+      print('[ETH] Fetching balance for wallet: ${_walletModel.getAddress}');
+      
       EtherAmount ether = await _ethereumService
           .getBalance(EthereumAddress.fromHex(_walletModel.getAddress));
+      
+      print('[ETH] Raw balance: ${ether.getValueInUnit(EtherUnit.ether)} ETH');
+      
       double? priceEth =
           await _coinGeckoService.getCryptoPrice('ethereum', 'usd');
 
@@ -164,9 +179,12 @@ Future<void> saveData(String key, String value) async {
       _walletModel.setBalance =
           priceEth != null ? _walletModel.getEtherAmount * priceEth : 0;
 
+      print('[ETH] Balance updated: ${_walletModel.getEtherAmount} ETH = \$${_walletModel.getBalance}');
+
       _isLoading = false;
       Future.microtask(() => notifyListeners());
     } catch (e) {
+      print('[ETH] Error fetching balance: $e');
       _isLoading = false;
       Future.microtask(() => notifyListeners());
       rethrow;

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:wallet/providers/ethereum_provider.dart';
+import 'package:wallet/providers/swap_provider.dart';
 import 'package:wallet/utils/format.dart';
 
 class ReceiveScreen extends StatefulWidget {
@@ -11,6 +12,30 @@ class ReceiveScreen extends StatefulWidget {
 }
 
 class _ReceiveScreenState extends State<ReceiveScreen> {
+  Future<void> _refreshBalance() async {
+    final ethereumProvider = Provider.of<EthereumProvider>(context, listen: false);
+    final swapProvider = Provider.of<SwapProvider>(context, listen: false);
+    
+    // Fetch balance từ blockchain
+    await ethereumProvider.fetchBalance();
+    
+    // Refresh balance trong SwapProvider (cập nhật khi nhận ETH)
+    final walletAddress = ethereumProvider.walletModel?.getAddress ?? '';
+    if (walletAddress.isNotEmpty) {
+      await swapProvider.refreshBalance(
+        walletAddress,
+        ethereumProvider.walletModel?.getEtherAmount ?? 0.0,
+      );
+    }
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Đã cập nhật số dư!'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ethereumProvider = Provider.of<EthereumProvider>(context);
@@ -19,6 +44,13 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
         title: Text("Nhận tiền mã hóa", style: TextStyle(color: Colors.white)),
         centerTitle: true,
         backgroundColor: Color(0xFF9886E5),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            tooltip: 'Refresh Balance',
+            onPressed: _refreshBalance,
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),

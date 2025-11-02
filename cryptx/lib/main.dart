@@ -1,6 +1,7 @@
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:wallet/providers/ethereum_provider.dart';
+import 'package:wallet/providers/swap_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wallet/screens/home_page.dart';
@@ -16,7 +17,10 @@ void main() async {
       providers: [
         ChangeNotifierProvider(
           create: (_) => EthereumProvider(
-              dotenv.env['RPC_URL'] ?? 'http://127.0.0.1:7545', http.Client()),
+              dotenv.env['RPC_URL'] ?? 'http://127.0.0.1:8545', http.Client()),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => SwapProvider(),
         ),
       ],
       child: MyApp(),
